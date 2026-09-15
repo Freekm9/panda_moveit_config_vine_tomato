@@ -1,0 +1,89 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Simulation-only bringup: puts Gazebo and move_group under the same
+       ROS namespace so MoveIt's controller manager (which already expects
+       controllers under /$(arg robot_name), see simple_moveit_controller_manager.launch.xml)
+       finds the Gazebo-spawned controllers. Mirrors the ns grouping that
+       launch_moveit.launch uses for the real robot; kept separate so that
+       file isn't touched and doesn't end up double-namespaced. -->
+  <arg name="robot_name" default="panda"/>
+  <arg name="arm_id" default="$(arg robot_name)"/>
+
+  <!-- Gazebo / robot spawn -->
+  <arg name="x" default="0.0"/>
+  <arg name="y" default="0.0"/>
+  <arg name="z" default="0.0"/>
+  <arg name="world" default="worlds/empty.world"/>
+  <arg name="controller" default="position_joint_trajectory_controller"/>
+  <arg name="rviz" default="true"/>
+  <arg name="use_gripper" default="true"/>
+  <!-- Passed straight through to franka_gazebo/panda.launch's own xacro_args, for anything
+       that doesn't itself contain ':=' (see finger_extension_m/tcp_xyz below for why those
+       can't go through here). -->
+  <arg name="xacro_args" default=""/>
+  <!-- Kept separate from xacro_args: roslaunch resolves CLI arg:=value overrides via
+       rosgraph.names.load_mappings(), which does a plain arg.split(':=') with no limit,
+       so a value that itself contains ':=' (e.g. xacro_args:="finger_extension_m:=0.02")
+       produces more than 2 pieces, the unpack throws, and roslaunch silently drops the
+       whole override (only printing "Invalid remapping argument") instead of erroring.
+       So to test a shorter finger, pass these flat: finger_extension_m:=0.02
+       tcp_xyz:="0 0 0.1234" -->
+  <arg name="finger_extension_m" default="0.09"/>
+  <arg name="tcp_xyz" default="0 0 0.1934"/>
+
+  <!-- move_group -->
+  <arg name="load_gripper" default="true"/>
+  <arg name="transmission" default="position"/>
+  <arg name="moveit_controller_manager" default="simple"/>
+  <arg name="pipeline" default="ompl"/>
+
+  <!-- Crate collision scene: launch_moveit.launch always publishes this on the real
+       robot; load it by default in sim too, since anything that needs the crate walls
+       (e.g. test_crate_reachability.py) assumes they're already in the planning scene. -->
+  <arg name="load_crate_scene" default="true"/>
+
+  <group ns="$(arg robot_name)">
+
+    <!-- gazebo_ros/spawn_model's -gazebo_namespace default is the hardcoded literal
+         '/gazebo', which does NOT follow the 'gazebo' node into this ns="panda" group
+         the way plain relative names do (see franka_gazebo/launch/robot.launch); gzserver
+         itself ends up advertising its spawn/pause services at /panda/gazebo/..., so
+         spawn_model has to be told that explicitly or it hangs/fails looking at the
+         unnamespaced /gazebo/... and no robot ever appears in Gazebo. -->
+    <include file="$(find franka_gazebo)/launch/panda.launch">
+      <arg name="arm_id" value="$(arg arm_id)"/>
+      <arg name="x" value="$(arg x)"/>
+      <arg name="y" value="$(arg y)"/>
+      <arg name="z" value="$(arg z)"/>
+      <arg name="world" value="$(arg world)"/>
+      <arg name="controller" value="$(arg controller)"/>
+      <arg name="rviz" value="$(arg rviz)"/>
+      <arg name="use_gripper" value="$(arg use_gripper)"/>
+      <arg name="gazebo_namespace" value="/$(arg robot_name)/gazebo"/>
+      <arg name="xacro_args" value="$(arg xacro_args)"/>
+      <arg name="finger_extension_m" value="$(arg finger_extension_m)"/>
+      <arg name="tcp_xyz" value="$(arg tcp_xyz)"/>
+    </include>
+
+    <!-- pass_all_args carries robot_name through to trajectory_execution.launch.xml,
+         then to simple_moveit_controller_manager.launch.xml, which needs it for
+         ros_control_namespace but (like its ros_control_moveit_controller_manager.launch.xml
+         sibling) never declares its own robot_name arg; it only ever receives one by
+         riding along on pass_all_args the way demo.launch's identical include does
+         for the real-robot path. Without pass_all_args here, robot_name never leaves
+         this file's scope and that lookup fails with "requires the 'robot_name' arg
+         to be set". -->
+    <include file="$(dirname)/move_group.launch" pass_all_args="true">
+      <arg name="load_gripper" value="$(arg load_gripper)"/>
+      <arg name="arm_id" value="$(arg arm_id)"/>
+      <arg name="moveit_controller_manager" value="$(arg moveit_controller_manager)"/>
+      <arg name="transmission" value="$(arg transmission)"/>
+      <arg name="pipeline" value="$(arg pipeline)"/>
+    </include>
+
+    <!-- Same crate scene launch_moveit.launch publishes for the real robot. -->
+    <node name="publish_planning_scene" pkg="moveit_ros_planning" type="moveit_publish_scene_from_text"
+          args="$(find panda_moveit_config_vine_tomato)/config/small_crate.scene" if="$(arg load_crate_scene)" />
+
+  </group>
+</launch>

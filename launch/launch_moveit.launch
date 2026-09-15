@@ -4,21 +4,29 @@
   <arg name="robot_name"/>
   <arg name="load_gripper" default="true"/>
   <arg name="arm_id" value="$(arg robot_name)"/>
-  <arg name="pipeline" default="pilz_industrial_motion_planner" /> <!-- default: pilz_industrial_motion_planner, change to ompl for automatic calibration-->
-  
+  <arg name="pipeline" default="ompl" /> <!-- default: pilz_industrial_motion_planner, change to ompl for automatic calibration-->
+  <!-- Passed straight through to franka_control.launch's own xacro_args: e.g. to test a
+       different finger-extension length (see franka_hand.xacro):
+       xacro_args:="finger_extension_m:=0.06 tcp_xyz:='0 0 0.1634'" -->
+  <arg name="xacro_args" default="" />
+
   <group ns="$(arg robot_name)">
   <!-- Launch real-robot control -->
   <include file="$(find franka_control)/launch/franka_control.launch">
   <arg name="robot" value ="$(arg robot_name)"/>
   <arg name="robot_ip" value="$(arg robot_ip)"/>
   <arg name="load_gripper" value="$(arg load_gripper)"/>
+  <arg name="xacro_args" value="$(arg xacro_args)"/>
   </include>
   
+  <!-- Launch the confined environment-->
+  <node name="publish_planning_scene" pkg="moveit_ros_planning" type="moveit_publish_scene_from_text" args="$(find panda_moveit_config_vine_tomato)/config/small_crate.scene" />
+
   <!-- Launch camera calibration -->
-  <include file="$(find moveit_calibration_gui)/camera_calibration.launch" pass_all_args="true"/>
+  <include file="$(find moveit_calibration_gui)/camera_calibration_v8.launch" pass_all_args="true"/> 
 
   <!-- By default use joint position controllers -->
-  <arg name="transmission" default="position" />
+  <arg name="transmission" default="effort" />
   <!-- Start ROS controllers -->
   <include file="$(dirname)/ros_controllers.launch" pass_all_args="true"/>
 
